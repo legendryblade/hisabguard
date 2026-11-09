@@ -1,0 +1,15 @@
+.git
+.env
+.env.*
+.venv
+runtime
+artifacts
+tests
+scripts
+__pycache__
+.pytest_cache
+web/node_modules
+web/dist
+.opencode
+.cache
+.judge

@@ -1,0 +1,20 @@
+services:
+  hisabguard:
+    build: .
+    ports:
+      - "127.0.0.1:8834:8834"
+    environment:
+      HISABGUARD_ACCESS_TOKEN: ${HISABGUARD_ACCESS_TOKEN:?Set a long random access token in .env}
+      HISABGUARD_LLM_BASE_URL: ${HISABGUARD_LLM_BASE_URL:-https://api.openai.com/v1}
+      HISABGUARD_LLM_API_KEY: ${HISABGUARD_LLM_API_KEY:-}
+      HISABGUARD_LLM_MODEL: ${HISABGUARD_LLM_MODEL:-gpt-4o-mini}
+      HISABGUARD_VISION_MODEL: ${HISABGUARD_VISION_MODEL:-gpt-4o-mini}
+      HISABGUARD_STT_BASE_URL: ${HISABGUARD_STT_BASE_URL:-https://api.groq.com/openai/v1}
+      HISABGUARD_STT_API_KEY: ${HISABGUARD_STT_API_KEY:-}
+      HISABGUARD_STT_MODEL: ${HISABGUARD_STT_MODEL:-whisper-large-v3-turbo}
+      HISABGUARD_SEED_DEMO: ${HISABGUARD_SEED_DEMO:-1}
+    volumes:
+      - evidence:/var/lib/hisabguard
+    restart: unless-stopped
+volumes:
+  evidence:

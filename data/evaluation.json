@@ -1,0 +1,14 @@
+{
+  "version": "hisabguard.synthetic-evaluation.v1",
+  "scope": "Synthetic English/Banglish statements and reviewed operator records. Not a real-world accuracy, fraud, STT or revenue study.",
+  "rubric": "Recipient must match a permitted role/name and the question must include at least one evidence-target keyword. Publish every generated question for human inspection; lexical scoring is only a proxy.",
+  "base": {"invoice_bdt": "32000.00", "payment_bdt": "25000.00", "expense_bdt": "3500.00", "advance_bdt": "5000.00", "delivered": true},
+  "cases": [
+    {"id": "promise", "label": "Promise is not payment", "statement": "Customer promises the remaining BDT 7000 tomorrow. No transaction receipt has arrived. Driver has no claim of receiving this money.", "expected_roles": ["customer"], "evidence_keywords": ["receipt", "transaction", "payment confirmation", "payment evidence"], "require_question": true},
+    {"id": "cash_with_driver", "label": "Cash reportedly with driver, not another customer debt reminder", "statement": "Customer says the remaining BDT 7000 was handed in cash to the driver. The driver agrees he collected it and still has the cash, but the owner has no receipt or handover record.", "expected_roles": ["driver", "owner"], "evidence_keywords": ["handover", "hand over", "cash", "deposit", "remit"], "require_question": true},
+    {"id": "disputed_deduction", "label": "Investigate a weight deduction before treating it as an ordinary overdue payment", "statement": "The customer contests the final BDT 7000 because unloading weight was short. The owner has the invoice but no receiving weighbridge slip. Driver says he can obtain the destination weighbridge slip.", "expected_roles": ["driver"], "evidence_keywords": ["weight", "weighbridge", "shortage", "unloading"], "require_question": true},
+    {"id": "missing_challan", "label": "Missing delivery proof", "delivered": false, "statement": "Customer payment was received in part but the signed delivery challan is absent. Driver says delivery happened.", "expected_roles": ["driver"], "evidence_keywords": ["challan", "signed", "delivery proof", "delivery confirmation"], "require_question": true},
+    {"id": "duplicate_fuel", "label": "Duplicate fuel receipt", "duplicate_expense": true, "statement": "The driver submitted the same fuel transaction twice.", "expected_roles": ["owner", "driver"], "evidence_keywords": ["duplicate", "repeated", "original", "same transaction"], "require_question": true},
+    {"id": "balanced", "label": "Fully documented account", "payment_bdt": "32000.00", "cash_return_bdt": "1500.00", "statement": "Every invoice, received payment, delivery record, fuel receipt and cash return is recorded and reviewed. No missing evidence is claimed.", "expected_roles": [], "evidence_keywords": [], "require_question": false}
+  ]
+}
