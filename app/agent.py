@@ -61,36 +61,33 @@ Call finish_investigation even if evidence is missing; explicitly report missing
 Assistant prose is not an action. Only allowlisted tool calls stage proposed actions."""
 
 
-def investigate(store, trip_id):
-    mode = "model" if providers.get_status().get("model_configured") else "demo"
-    run_id, revision = store.start_run(trip_id, mode)
-    detail = store.detail(trip_id)
-    if mode == "demo":
+def _run_demo(store, run_id, revision, detail, trip_id):
+    """Deterministic review path; always available, clearly labelled demo mode."""
+    try:
+        result = review(detail)
+        if any(row["question"] and row["revision"] == revision and row["status"] != "failed" for row in detail["investigations"]):
+            result["question"], result["recipient"] = None, None
+        if any(row["status"] == "pending" and row["revision"] == revision for row in detail["actions"]):
+            result["followup"] = None
+        store.record_step(run_id, {"tool": "get_trip_records", "args": {"trip_id": trip_id}, "result": detail["settlement"]})
+        store.record_step(run_id, {"tool": "identify_missing_evidence", "args": {"trip_id": trip_id}, "result": detail["settlement"]["issues"]})
+        if result["question"]:
+            store.record_step(run_id, {"tool": "request_clarification", "args": {key: result[key] for key in ("question", "recipient", "evidence_ids")}, "result": {"staged": True, "mode": "demo"}})
+        if result["followup"]:
+            store.record_step(run_id, {"tool": "prepare_followup", "args": result["followup"], "result": {"staged": True, "delivery": "draft_only"}})
+        store.record_step(run_id, {"tool": "finish_investigation", "args": {"summary": result["summary"], "evidence_ids": result["evidence_ids"]}, "result": {"can_settle": detail["settlement"]["can_settle"]}})
+        store.finish_run(run_id, **result)
+    except Exception:
         try:
-            result = review(detail)
-            if any(row["question"] and row["revision"] == revision and row["status"] != "failed" for row in detail["investigations"]):
-                result["question"], result["recipient"] = None, None
-            if any(row["status"] == "pending" and row["revision"] == revision for row in detail["actions"]):
-                result["followup"] = None
-            store.record_step(run_id, {"tool": "get_trip_records", "args": {"trip_id": trip_id}, "result": detail["settlement"]})
-            store.record_step(run_id, {"tool": "identify_missing_evidence", "args": {"trip_id": trip_id}, "result": detail["settlement"]["issues"]})
-            if result["question"]:
-                store.record_step(run_id, {"tool": "request_clarification", "args": {key: result[key] for key in ("question", "recipient", "evidence_ids")}, "result": {"staged": True, "mode": "demo"}})
-            if result["followup"]:
-                store.record_step(run_id, {"tool": "prepare_followup", "args": result["followup"], "result": {"staged": True, "delivery": "draft_only"}})
-            store.record_step(run_id, {"tool": "finish_investigation", "args": {"summary": result["summary"], "evidence_ids": result["evidence_ids"]}, "result": {"can_settle": detail["settlement"]["can_settle"]}})
-            store.finish_run(run_id, **result)
-        except Exception:
-            try:
-                store.finish_run(run_id, summary="Demo review failed before completion. No follow-up was committed; retry against the current evidence.", evidence_ids=[], failed=True)
-            except StoreError as exc:
-                if exc.status != 409:
-                    raise
-            raise
-        return
+            store.finish_run(run_id, summary="Demo review failed before completion. No follow-up was committed; retry against the current evidence.", evidence_ids=[], failed=True)
+        except StoreError as exc:
+            if exc.status != 409:
+                raise
+        raise
 
-    # Do not recursively embed old tool transcripts in new runs. Retain the
-    # recent decisions, but fetch evidence through tools instead of copying history.
+
+def _run_model(store, run_id, revision, detail, trip_id):
+    """Model investigation; bounded tool loop. Raises StoreError on failure."""
     records = {"trip": detail["trip"], "evidence": detail["evidence"], "settlement": detail["settlement"],
                "recent_investigations": [{key: row[key] for key in ("id", "revision", "mode", "status", "summary", "question", "recipient", "evidence_ids")}
                                          for row in detail["investigations"][-4:]],
@@ -189,8 +186,6 @@ def investigate(store, trip_id):
         if not finished:
             raise ValueError("Investigation turn limit reached without finish")
         if question and question["evidence_ids"] and not followup and not existing_action:
-            # The model's own question is the proposed outreach, never a canned
-            # response or an external send. The same source/money checks apply.
             followup = {"recipient": question["recipient"], "message": question["question"],
                         "evidence_ids": question["evidence_ids"]}
             validate_followup(detail, followup)
@@ -201,16 +196,29 @@ def investigate(store, trip_id):
                          recipient=question["recipient"] if question else None, followup=followup)
     except Exception as exc:
         try:
-            store.finish_run(run_id, summary="Model investigation failed. No evidence was confirmed, no follow-up was committed, and no settlement was approved. Retry after checking provider configuration or rejected tool calls.",
-                             evidence_ids=[], failed=True)
+            store.finish_run(run_id, summary="Live model investigation failed; no conclusion was adopted and your ledger is unchanged. Retry live or run the deterministic review.", evidence_ids=[], failed=True)
         except StoreError as finish_error:
             if finish_error.status != 409:
                 raise
         if isinstance(exc, StoreError) and exc.status == 409:
             raise
-        raise StoreError(502, "Model investigation failed; evidence is unchanged. Check provider configuration and retry.") from None
+        raise StoreError(502, "Live model failed; evidence is unchanged. Falling back to deterministic review.") from None
 
 
+def investigate(store, trip_id):
+    """Run one investigation. Model mode if AI is configured, else deterministic demo mode.
+    A configured model failure is a hard error with no silent substitution."""
+    configured = bool(providers.get_status().get("model_configured"))
+    initial = "model" if configured else "demo"
+    run_id, revision = store.start_run(trip_id, initial)
+    detail = store.detail(trip_id)
+    if initial == "demo":
+        _run_demo(store, run_id, revision, detail, trip_id)
+        return
+    try:
+        _run_model(store, run_id, revision, detail, trip_id)
+    except StoreError as exc:
+        raise
 def _unique_object(pairs):
     result = {}
     for key, value in pairs:
